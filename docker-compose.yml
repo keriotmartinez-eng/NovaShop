@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: novashop_db
+    restart: always
+    environment:
+      POSTGRES_DB: novashop_db
+      POSTGRES_USER: novashop_user
+      POSTGRES_PASSWORD: novashop_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novashop_user -d novashop_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: novashop_backend
+    restart: always
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=db
+      - DB_NAME=novashop_db
+      - DB_USER=novashop_user
+      - DB_PASSWORD=novashop_password
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: novashop_frontend
+    restart: always
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  k6:
+    image: grafana/k6:latest
+    container_name: novashop_k6
+    profiles: ["testing"]
+    volumes:
+      - ./tests/k6:/tests
+    command: run /tests/load-test.js
+    depends_on:
+      - backend
+
+  selenium-chrome:
+    image: selenium/standalone-chrome:latest
+    container_name: novashop_selenium_chrome
+    ports:
+      - "4444:4444"
+      - "7900:7900"
+    shm_size: 2gb
+
+  selenium-runner:
+    build:
+      context: ./selenium_reports
+    container_name: novashop_selenium_runner
+    profiles: ["testing"]
+    volumes:
+      - ./selenium_reports/reports:/reports
+    depends_on:
+      - frontend
+      - selenium-chrome
+
+volumes:
+  postgres_data:
